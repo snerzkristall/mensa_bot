@@ -4,7 +4,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 import requests
 from bs4 import BeautifulSoup
 
-TOKEN: Final = '7000748276:AAF5YFKQ9bQjYPS4I0R_AYVT58ORcGqtLgU'
+TOKEN: Final = 'PRIVATE WHOOPS'
 BOT_USERNAME : Final = '@SnerzBot_MensaBot'
 
 # Scraping and Formatting
