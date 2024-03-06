@@ -1,2 +1,4 @@
 # Hide TOKEN
 cfg/
+# Pass virtual env
+tbot_venv/
