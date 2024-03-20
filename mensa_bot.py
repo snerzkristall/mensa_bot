@@ -1,113 +1,76 @@
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-import requests
-from bs4 import BeautifulSoup
-import datetime
+# local config for bot
 from cfg import config
+
+# external modules
+import logging
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
+import requests
 import asyncio
-import urllib3
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 BOT_TOKEN = config.TOKEN
 BOT_USERNAME = config.USERNAME
 
-# Scraping and Formatting
-def scrape_menus(day_offset=0) -> str:
-    url = "https://www.mensen.at"
+def scrape_via_api() -> list:
+    url = "https://menu.jku.at/api/menus";
     headers = {
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:122.0) Gecko/20100101 Firefox/122.0",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
         "Accept-Encoding": "gzip, deflate, br",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cache-Control": "max-age=0",
         "Connection": "close",
-        "Cookie": "_ga=GA1.2.785020346.1709669962; _gid=GA1.2.743105493.1709669962; _fbp=fb.1.1709669961584.1882955926; _ga_G6P0XJCGTB=GS1.2.1709680247.2.0.1709680247.0.0.0; mensenCookieHintClosed=1; mensenExtLocation=1",
-        }
+        "Cookie": "84967f855aa492c1c8079ed7ab50186f=649a681895fa59344d265e5b7ade3082; CookieConsent=OK",
+    }
+    return requests.get(url, headers=headers, verify=False).json()
 
-    response = requests.get(url, headers=headers, verify=False)
-    
-    if response.status_code == 200:
-        soup = BeautifulSoup(response.content, 'html.parser')
-        raw = soup.get_text().split('Menü Classic')
-        if day_offset > 4:
-            return "Mensa opens again on Monday!"
-        else:
-            m1_raw, v_raw, f_raw = raw[1+day_offset].split('Tagesgericht')
-            m2_raw = raw[6+day_offset]
-            menu_v = get_menu1(m1_raw)
-            menu_f = get_menu2(m2_raw)
-            meal_v = get_meal_veggie(v_raw)
-            meal_f = get_meal_meat(f_raw)
-            return menu_v + "\n\n" + menu_f + "\n\n" + meal_v + "\n\n" + meal_f
+def get_jku_menu(data: dict) -> str:
+    menu_veg = extract_menu(data[3]["menuTypes"][0])
+    menu_carnv = extract_menu(data[3]["menuTypes"][1], veg=False)
+    plate_veg = extract_plate(data[3]["menuTypes"][2]["menu"]["groupedDishes"]["MAIN_COURSE"][0])
+    plate_carnv = extract_plate(data[3]["menuTypes"][2]["menu"]["groupedDishes"]["MAIN_COURSE"][1], veg=False)
+    return "JKU MENU\n\n" + menu_veg + "\n\n" + menu_carnv + "\n\n" + plate_veg + "\n\n" + plate_carnv + "\n\n"
+
+def get_khg_menu(data: dict) -> str:
+    menu_veg = extract_menu(data[2]["menuTypes"][0])
+    menu_carnv = extract_menu(data[2]["menuTypes"][1], veg=False)
+    return "KHG MENU\n\n" + menu_veg + "\n\n" + menu_carnv + "\n\n"
+
+def extract_menu(data: dict, veg: bool = True) -> str:
+    price = data["menu"]["prices"][0]["price"]
+    menu = data["menu"]["groupedDishes"]
+    starters = menu["STARTER"][0]["name"]
+    main = menu["MAIN_COURSE"][0]["name"] + " " + menu["MAIN_COURSE"][0]["sides"]
+    if veg:
+        return f"**Veggie Menu** ({price:.2f})\n{main},\n{starters}."
     else:
-        return "Failed to retrieve the webpage. Status code:", response.status_code
+        return f"**Meat Menu** ({price:.2f})\n{main},\n{starters}."
 
-def get_menu1(raw: str) -> str:
-    name = 'Menü Veggie'
-    desc, price, _ = raw.split('\n',1)[1].replace('\n', ' ').split(' €')
-    price = " (€ " + price.strip(' ').split('-')[0] + ')'
-    d1, d2 = desc.split('Getränk')
-    return name + price + "\n" + d1.strip(' ') + ' Getränk' + '\n' + d2.strip(' ')
-
-def get_menu2(raw: str) -> str:
-    name = 'Menü Fleisch'
-    x1, x2 = raw.split('€',1)
-    x = x1.split('\n',1)[1].replace('\n', ' ')
-    price = " (€ " + x2.split('-')[0].strip(' ') + ')'
-    desc = x.replace('Getränk ', 'Getränk\n')
-    return name + price + "\n" + desc
-
-def get_meal_veggie(raw: str) -> str:
-    name = 'Gericht Veggie'
-    lines = raw.split('\n')
-    price = " (€ " + lines[-2].split('€ ')[-1].strip(' ').strip('\n') + ')\n'
-    desc = "".join(line + ' ' for line in lines[1:-2]).replace('\n', ' ').strip(' ')
-    return name + price + desc
-
-def get_meal_meat(raw: str) -> str:
-    name = 'Gericht Fleisch'
-    lines = raw.split('\n')
-    price = " (€" + lines[-4].split('€')[-1].strip(' ') + ')\n'
-    desc = "".join(line + ' ' for line in lines[1:-4]).replace('\n', ' ').strip(' ')
-    return name + price + desc
+def extract_plate(data: dict, veg: bool = True) -> str:
+    price = data["prices"][0]["price"]
+    main = data["name"] + " " + data["sides"]
+    if veg:
+        return f"Veggie Plate (€ {price:.2f})\n{main}."
+    else:
+        return f"Meat Plate (€ {price:.2f})\n{main}."
 
 # Commands 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-	await update.message.reply_text('Snerz! Thx for ch@tting with me!')
+    await update.message.reply_text('Snerz! Thx for ch@tting with me!')
 
-async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    day_offset = datetime.datetime.today().weekday()
-    menu_formatted = scrape_menus(day_offset=day_offset)
-    msg = "Today's menus: \n\n" + menu_formatted
+async def jku_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    data = scrape_via_api()
+    msg = get_jku_menu(data)
     await update.message.reply_text(msg)
-
-async def monday_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    menu_formatted = scrape_menus(day_offset=0)
-    msg = "Monday's menus: \n\n" + menu_formatted
-    await update.message.reply_text(msg)
-
-async def tuesday_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    menu_formatted = scrape_menus(day_offset=1)
-    msg = "Tuesday's menus: \n\n" + menu_formatted
-    await update.message.reply_text(msg)
-
-async def wednesday_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    menu_formatted = scrape_menus(day_offset=2)
-    msg = "Wednesday's menus: \n\n" + menu_formatted
-    await update.message.reply_text(msg)
-
-async def thursday_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    menu_formatted = scrape_menus(day_offset=3)
-    msg = "Thursday's menus: \n\n" + menu_formatted
-    await update.message.reply_text(msg)
-
-async def friday_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    menu_formatted = scrape_menus(day_offset=4)
-    msg = "Friday's menus: \n\n" + menu_formatted
+    
+async def khg_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    data = scrape_via_api()
+    msg = get_khg_menu(data)
     await update.message.reply_text(msg)
     
 # Errors
 async def error(update: Update, context: ContextTypes.DEFAULT_TYPE):
-	print(f'Update {update} caused error {context.error}')
+    print(f'Update {update} caused error {context.error}')
 
 # Main
 if __name__ == '__main__':
@@ -115,12 +78,8 @@ if __name__ == '__main__':
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler('start', start_command))
-    app.add_handler(CommandHandler('menu', menu_command))
-    app.add_handler(CommandHandler('monday', monday_command))
-    app.add_handler(CommandHandler('tuesday', tuesday_command))
-    app.add_handler(CommandHandler('wednesday', wednesday_command))
-    app.add_handler(CommandHandler('thursday', thursday_command))
-    app.add_handler(CommandHandler('friday', friday_command))
+    app.add_handler(CommandHandler('jku', jku_command))
+    app.add_handler(CommandHandler('khg', khg_command))
 
     app.add_error_handler(error)
 
