@@ -42,9 +42,9 @@ def extract_menu(data: dict, veg: bool = True) -> str:
     starters = menu["STARTER"][0]["name"]
     main = menu["MAIN_COURSE"][0]["name"] + " " + menu["MAIN_COURSE"][0]["sides"]
     if veg:
-        return f"**Veggie Menu** ({price:.2f})\n{main},\n{starters}."
+        return f"Veggie Menu ({price:.2f})\n{main},\n{starters}."
     else:
-        return f"**Meat Menu** ({price:.2f})\n{main},\n{starters}."
+        return f"Meat Menu ({price:.2f})\n{main},\n{starters}."
 
 def extract_plate(data: dict, veg: bool = True) -> str:
     price = data["prices"][0]["price"]
